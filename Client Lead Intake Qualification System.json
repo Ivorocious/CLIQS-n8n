@@ -1,0 +1,64 @@
+{
+  "name": "Client Lead Intake Qualification System",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "5744a27b-ffbf-4ff8-8585-3505684d96f3",
+      "name": "Webhook - Receive Lead Intake",
+      "webhookId": "fc590e31-9172-47d4-8be6-f7b9145b98ba"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;\n\nfunction cleanString(value) {\n  if (value === undefined || value === null) {\n    return '';\n  }\n\n  return String(value).trim();\n}\n\nfunction parseBudget(value) {\n  if (value === undefined || value === null || value === '') {\n    return 0;\n  }\n\n  const numericValue = Number(String(value).replace(/[^0-9.-]/g, ''));\n\n  return Number.isFinite(numericValue) ? numericValue : 0;\n}\n\nconst lead = {\n  full_name: cleanString(payload.full_name),\n  email: cleanString(payload.email).toLowerCase(),\n  phone: cleanString(payload.phone),\n  company: cleanString(payload.company),\n  service_need: cleanString(payload.service_need),\n  budget: parseBudget(payload.budget),\n  urgency: cleanString(payload.urgency).toLowerCase(),\n  message: cleanString(payload.message),\n  source: cleanString(payload.source) || 'website_form',\n};\n\nconst requiredFields = ['full_name', 'email', 'service_need', 'message'];\n\nconst missingRequiredFields = requiredFields.filter((field) => !lead[field]);\n\nconst validationErrors = [];\n\nif (missingRequiredFields.length > 0) {\n  validationErrors.push(`Missing required fields: ${missingRequiredFields.join(', ')}`);\n}\n\nconst emailPattern = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n\nif (lead.email && !emailPattern.test(lead.email)) {\n  validationErrors.push('Email format is invalid');\n}\n\nconst isValid = validationErrors.length === 0;\n\nreturn {\n  json: {\n    received_at: new Date().toISOString(),\n    validation_status: isValid ? 'valid' : 'invalid',\n    is_valid: isValid,\n    validation_errors: validationErrors,\n    missing_required_fields: missingRequiredFields,\n    lead,\n    raw_payload: payload,\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "c206cf24-c5a4-4904-85fb-6cdb1bd7961b",
+      "name": "Code - Normalize and Validate Lead"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Receive Lead Intake": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize and Validate Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true
+  },
+  "versionId": "3d1e75bf-c301-4a3d-8c1a-172096ab6e36",
+  "meta": {
+    "instanceId": "230386c0a3278c0665976801eeecb5db8f36b05945098005611e1a6b75b5427a"
+  },
+  "id": "Ge5w6oBYstyCWWCs",
+  "tags": []
+}
