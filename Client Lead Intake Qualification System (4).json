@@ -1,0 +1,454 @@
+{
+  "name": "Client Lead Intake Qualification System",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-intake",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        -48
+      ],
+      "id": "5744a27b-ffbf-4ff8-8585-3505684d96f3",
+      "name": "Webhook - Receive Lead Intake",
+      "webhookId": "fc590e31-9172-47d4-8be6-f7b9145b98ba"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const payload = $json.body && typeof $json.body === 'object' ? $json.body : $json;\n\nfunction cleanString(value) {\n  if (value === undefined || value === null) {\n    return '';\n  }\n\n  return String(value).trim();\n}\n\nfunction parseBudget(value) {\n  if (value === undefined || value === null || value === '') {\n    return 0;\n  }\n\n  const numericValue = Number(String(value).replace(/[^0-9.-]/g, ''));\n\n  return Number.isFinite(numericValue) ? numericValue : 0;\n}\n\nconst lead = {\n  full_name: cleanString(payload.full_name),\n  email: cleanString(payload.email).toLowerCase(),\n  phone: cleanString(payload.phone),\n  company: cleanString(payload.company),\n  service_need: cleanString(payload.service_need),\n  budget: parseBudget(payload.budget),\n  urgency: cleanString(payload.urgency).toLowerCase(),\n  message: cleanString(payload.message),\n  source: cleanString(payload.source) || 'website_form',\n};\n\nconst requiredFields = ['full_name', 'email', 'service_need', 'message'];\n\nconst missingRequiredFields = requiredFields.filter((field) => !lead[field]);\n\nconst validationErrors = [];\n\nif (missingRequiredFields.length > 0) {\n  validationErrors.push(`Missing required fields: ${missingRequiredFields.join(', ')}`);\n}\n\nconst emailPattern = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n\nif (lead.email && !emailPattern.test(lead.email)) {\n  validationErrors.push('Email format is invalid');\n}\n\nconst isValid = validationErrors.length === 0;\n\nreturn {\n  json: {\n    received_at: new Date().toISOString(),\n    validation_status: isValid ? 'valid' : 'invalid',\n    is_valid: isValid,\n    validation_errors: validationErrors,\n    missing_required_fields: missingRequiredFields,\n    lead,\n    raw_payload: payload,\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -48
+      ],
+      "id": "c206cf24-c5a4-4904-85fb-6cdb1bd7961b",
+      "name": "Code - Normalize and Validate Lead"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const lead = $json.lead || {};\nconst validationStatus = $json.validation_status || 'invalid';\nconst isValid = $json.is_valid === true;\n\nlet leadScore = 0;\nconst scoringBreakdown = [];\n\nfunction addScore(reason, points) {\n  leadScore += points;\n  scoringBreakdown.push({\n    reason,\n    points,\n  });\n}\n\nconst emailPattern = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nconst hasValidEmail = typeof lead.email === 'string' && emailPattern.test(lead.email);\n\nif (hasValidEmail) {\n  addScore('Valid email present', 10);\n}\n\nif (lead.phone) {\n  addScore('Phone present', 10);\n}\n\nif (lead.company) {\n  addScore('Company present', 10);\n}\n\nconst budget = Number(lead.budget) || 0;\n\nif (budget >= 5000) {\n  addScore('Budget is 5000 or higher', 30);\n} else if (budget >= 1000) {\n  addScore('Budget is between 1000 and 4999', 20);\n} else {\n  addScore('Budget is below 1000', 5);\n}\n\nconst urgency = String(lead.urgency || '').toLowerCase();\n\nif (urgency === 'urgent') {\n  addScore('Urgency is urgent', 25);\n} else if (urgency === 'high') {\n  addScore('Urgency is high', 15);\n}\n\nconst serviceNeed = String(lead.service_need || '').toLowerCase();\nconst priorityKeywords = ['automation', 'ai', 'workflow', 'integration', 'api'];\n\nconst matchedServiceKeywords = priorityKeywords.filter((keyword) =>\n  serviceNeed.includes(keyword)\n);\n\nif (matchedServiceKeywords.length > 0) {\n  addScore('Service need matches priority automation/API keywords', 20);\n}\n\nconst message = String(lead.message || '');\n\nif (message.length >= 80) {\n  addScore('Message has at least 80 characters', 10);\n}\n\nlet leadTier = 'incomplete';\n\nif (isValid && leadScore >= 70) {\n  leadTier = 'hot';\n} else if (isValid && leadScore >= 45) {\n  leadTier = 'qualified';\n} else if (isValid && leadScore >= 25) {\n  leadTier = 'nurture';\n}\n\nreturn {\n  json: {\n    ...$json,\n    lead_score: leadScore,\n    lead_tier: leadTier,\n    scoring_breakdown: scoringBreakdown,\n    matched_service_keywords: matchedServiceKeywords,\n    scoring_status: isValid ? 'scored' : 'not_scored_invalid_lead',\n    validation_status: validationStatus,\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        -48
+      ],
+      "id": "1a22cdcf-4cf0-40cf-9491-0e03a29fcbab",
+      "name": "Code - Score Lead"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const input = $json;\n\nconst lead = input.lead ?? input.normalized_lead ?? {};\nconst validationStatus = String(input.validation_status ?? '').toLowerCase();\nconst leadTier = String(input.lead_tier ?? '').toLowerCase();\nconst urgency = String(lead.urgency ?? input.urgency ?? '').toLowerCase();\n\nlet route = 'Manual Review';\nlet routeReason = 'Fallback route applied because no routing condition matched.';\n\nif (validationStatus === 'invalid' || input.is_valid === false || leadTier === 'incomplete') {\n  route = 'Manual Review';\n  routeReason = 'Lead is invalid or incomplete and requires human review.';\n} else if (urgency === 'urgent') {\n  route = 'Urgent Human Review';\n  routeReason = 'Lead marked as urgent and should be reviewed immediately.';\n} else if (leadTier === 'hot') {\n  route = 'Immediate Sales Follow-Up';\n  routeReason = 'Lead score qualifies as hot and should receive immediate sales follow-up.';\n} else if (leadTier === 'qualified') {\n  route = 'Qualified Lead Queue';\n  routeReason = 'Lead meets qualification threshold and should enter the qualified lead queue.';\n} else if (leadTier === 'nurture') {\n  route = 'Nurture Queue';\n  routeReason = 'Lead has some value but is not ready for immediate sales follow-up.';\n}\n\nlet responseStatus = 'success';\n\nif (route === 'Manual Review' || route === 'Urgent Human Review') {\n  responseStatus = 'needs_review';\n}\n\nreturn {\n  json: {\n    ...input,\n    route,\n    route_reason: routeReason,\n    response_status: responseStatus,\n    routing_status: 'routed',\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -48
+      ],
+      "id": "4a6a0e20-f379-49b6-8692-526bf6779f29",
+      "name": "Code - Determine Lead Route"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "Manual Review",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "a386c226-7943-403d-9cba-e1287de19c9d"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Manual Review"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "59064d63-ed5e-408c-b336-4722565c9954",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "Urgent Human Review",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Urgent Human Review"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "d9443b8c-c7e6-4c21-a237-aa2d351ed899",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "Immediate Sales Follow-Up",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Immediate Sales Follow-Up"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "bacef9af-a1d3-4540-a0b5-fa16557e171f",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "Qualified Lead Queue",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Qualified Lead Queue"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "afa7b6f5-f61d-4cb7-82fe-35743f93fb67",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "Nurture Queue",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Nurture Queue"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        896,
+        -96
+      ],
+      "id": "14625323-f79a-41a5-ba63-195a4c44b2d5",
+      "name": "Switch - Route Lead"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"action_type\": \"manual_review\",\n  \"action_status\": \"placeholder\",\n  \"action_description\": \"Lead requires human review before follow-up.\",\n  \"assigned_queue\": \"Manual Review Queue\"\n}",
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1120,
+        -432
+      ],
+      "id": "d69a5f27-6c01-4cad-a2f6-5f9dbb817d72",
+      "name": "Placeholder - Manual Review Queue"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"action_type\": \"urgent_human_review\",\n  \"action_status\": \"placeholder\",\n  \"action_description\": \"Lead is urgent and should be reviewed immediately by a human.\",\n  \"assigned_queue\": \"Urgent Human Review\"\n}",
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1120,
+        -240
+      ],
+      "id": "9c7ecd30-247b-4530-8db1-436d04997f8a",
+      "name": "Placeholder - Urgent Human Review Alert"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"action_type\": \"sales_follow_up\",\n  \"action_status\": \"placeholder\",\n  \"action_description\": \"Hot lead should trigger immediate sales follow-up.\",\n  \"assigned_queue\": \"Immediate Sales Follow-Up\"\n}",
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1120,
+        -48
+      ],
+      "id": "2bc07eb6-3fdc-45ad-8bf4-502e22ef0816",
+      "name": "Placeholder - Notify Sales for Hot Lead"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"action_type\": \"qualified_lead_queue\",\n  \"action_status\": \"placeholder\",\n  \"action_description\": \"Qualified lead should be added to the standard qualified lead queue.\",\n  \"assigned_queue\": \"Qualified Lead Queue\"\n}",
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1120,
+        144
+      ],
+      "id": "a6ebadea-7887-4bc9-8058-ab01da010e96",
+      "name": "Placeholder - Add to Qualified Lead Queue"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"action_type\": \"nurture_queue\",\n  \"action_status\": \"placeholder\",\n  \"action_description\": \"Lead should be added to a nurture queue for later follow-up.\",\n  \"assigned_queue\": \"Nurture Queue\"\n}",
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1120,
+        336
+      ],
+      "id": "64552812-da00-4752-967c-a8729cc870ae",
+      "name": "Placeholder - Add to Nurture Queue"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const input = $json;\n\nconst lead = input.lead ?? input.normalized_lead ?? {};\n\nconst leadLogRecord = {\n  call_or_submission_type: 'website_lead_intake',\n\n  full_name: lead.full_name ?? input.full_name ?? '',\n  email: lead.email ?? input.email ?? '',\n  phone: lead.phone ?? input.phone ?? '',\n  company: lead.company ?? input.company ?? '',\n  service_need: lead.service_need ?? input.service_need ?? '',\n  budget: lead.budget ?? input.budget ?? 0,\n  urgency: lead.urgency ?? input.urgency ?? '',\n  message: lead.message ?? input.message ?? '',\n  source: lead.source ?? input.source ?? '',\n\n  validation_status: input.validation_status ?? '',\n  validation_errors: input.validation_errors ?? [],\n  is_valid: input.is_valid ?? null,\n\n  lead_score: input.lead_score ?? 0,\n  lead_tier: input.lead_tier ?? '',\n  scoring_status: input.scoring_status ?? '',\n  scoring_breakdown: input.scoring_breakdown ?? [],\n  matched_service_keywords: input.matched_service_keywords ?? [],\n\n  route: input.route ?? '',\n  route_reason: input.route_reason ?? '',\n  response_status: input.response_status ?? '',\n  routing_status: input.routing_status ?? '',\n\n  action_type: input.action_type ?? '',\n  action_status: input.action_status ?? '',\n  action_description: input.action_description ?? '',\n  assigned_queue: input.assigned_queue ?? '',\n\n  received_at: input.received_at ?? lead.received_at ?? '',\n  logged_at: new Date().toISOString(),\n};\n\nreturn {\n  json: {\n    ...input,\n    lead_log_record: leadLogRecord,\n    logging_status: 'prepared',\n    logging_target: 'placeholder_log_storage',\n    logging_note:\n      'This portfolio workflow prepares a structured log record. In production, this would be inserted into n8n Data Tables, Google Sheets, Airtable, SmartSuite, CRM, or a database.',\n  },\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1488,
+        -48
+      ],
+      "id": "8c12b013-1b27-42a5-a49d-9ac5849253a2",
+      "name": "Code - Prepare Lead Intake Log"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - Receive Lead Intake": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize and Validate Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize and Validate Lead": {
+      "main": [
+        [
+          {
+            "node": "Code - Score Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Score Lead": {
+      "main": [
+        [
+          {
+            "node": "Code - Determine Lead Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Determine Lead Route": {
+      "main": [
+        [
+          {
+            "node": "Switch - Route Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch - Route Lead": {
+      "main": [
+        [
+          {
+            "node": "Placeholder - Manual Review Queue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Placeholder - Urgent Human Review Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Placeholder - Notify Sales for Hot Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Placeholder - Add to Qualified Lead Queue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Placeholder - Add to Nurture Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Placeholder - Notify Sales for Hot Lead": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Lead Intake Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Placeholder - Urgent Human Review Alert": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Lead Intake Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Placeholder - Manual Review Queue": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Lead Intake Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Placeholder - Add to Qualified Lead Queue": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Lead Intake Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Placeholder - Add to Nurture Queue": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Lead Intake Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true
+  },
+  "versionId": "da24cee7-b1e3-4601-9534-8dbaa4dee56e",
+  "meta": {
+    "instanceId": "230386c0a3278c0665976801eeecb5db8f36b05945098005611e1a6b75b5427a"
+  },
+  "id": "Ge5w6oBYstyCWWCs",
+  "tags": []
+}
