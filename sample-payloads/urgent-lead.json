@@ -1,0 +1,11 @@
+{
+  "full_name": "Juan Dela Cruz",
+  "email": "juan@example.com",
+  "phone": "+639181112222",
+  "company": "Dela Cruz Logistics",
+  "service_need": "API integration for failed delivery alerts",
+  "budget": "1500",
+  "urgency": "urgent",
+  "message": "Our delivery alert workflow is failing and we need urgent help routing failed delivery notifications to our operations team.",
+  "source": "emergency_contact_form"
+}

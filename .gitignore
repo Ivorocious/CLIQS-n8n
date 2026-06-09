@@ -1,0 +1,25 @@
+# Local environment and secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local logs and runtime output
+*.log
+logs/
+tmp/
+temp/
+.cache/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Local/archive exports not intended for portfolio publishing
+Archive/
+

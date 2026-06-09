@@ -1,0 +1,11 @@
+{
+  "full_name": "Maria Santos",
+  "email": "Maria.Santos@example.com",
+  "phone": "+639171234567",
+  "company": "Santos Dental Clinic",
+  "service_need": "AI automation for appointment follow-ups and CRM integration",
+  "budget": "5000",
+  "urgency": "high",
+  "message": "We want to automate appointment reminders, missed-call follow-ups, and lead tracking from our website forms into our CRM.",
+  "source": "website_contact_form"
+}
